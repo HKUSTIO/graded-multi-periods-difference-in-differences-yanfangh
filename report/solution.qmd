@@ -11,14 +11,32 @@ This report summarizes the multi-period difference-in-differences pipeline. The 
 
 Report the cohort shares and average treatment effects from `output/group_summary_no_covariate_trend.csv`.
 
+The pipeline generated 5 group summary rows. This corresponds to the four staggered treatment cohorts (cohorts 5, 6, 7, and 8) alongside one aggregated row for all treated observations.
+
 ## Event-study DID estimates
 
 Report the cohort-event estimates from `output/event_study_no_covariate_trend.csv`, `output/event_study_covariate_trend_never.csv`, and `output/event_study_covariate_trend_notyet.csv`.
+
+Aggregated post-treatment event-study estimates (Simple ATT):
+* **No covariate trend:** -0.2340
+* **Covariate trend (never-treated controls):** -0.4683
+* **Covariate trend (not-yet-treated controls):** -0.4568
+
 
 ## TWFE comparison
 
 Report `twfe_no_covariate_trend` and `twfe_covariate_trend` from `output/results.json`, and compare them with the simple post-treatment event-study averages.
 
+The pooled Two-Way Fixed Effects coefficients are:
+* `twfe_no_covariate_trend`: -0.0310
+* `twfe_covariate_trend`: -0.2743
+
+Comparing these to the simple post-treatment event-study averages reveals severe attenuation in the TWFE estimates. Without covariate trends, the TWFE coefficient (-0.0310) is heavily biased towards zero compared to the event-study simple ATT (-0.2340). With covariate trends, the TWFE coefficient (-0.2743) continues to significantly understate the magnitude of the aggregated cohort-specific estimates (-0.4683 and -0.4568). 
+
 ## Brief interpretation
 
 Explain why corrected cohort-specific DID targets the staggered adoption effects more directly than a pooled two-way fixed effects coefficient when treatment timing and treatment effects are heterogeneous.
+
+Corrected cohort-specific DID targets the staggered adoption effects more directly than a pooled two-way fixed effects (TWFE) coefficient because it explicitly avoids "forbidden comparisons" that arise under heterogeneous treatment effects and varying treatment timing. 
+
+In a pooled TWFE regression, the estimator utilizes already-treated units as controls for newly-treated units. Because treatment effects in this data-generating process are heterogeneous across time and cohorts (e.g., positive for early cohorts and negative for later cohorts), using an already-treated unit as a control essentially subtracts its time-varying treatment effect from the estimate. This introduces negative weights into the pooled average, severely biasing the TWFE coefficient toward zero (or even flipping its sign). Cohort-specific DID resolves this by constructing clean, distinct comparisons for each cohort and event time using strictly valid control groups (never-treated or not-yet-treated units), cleanly isolating the ATT without negative weighting.

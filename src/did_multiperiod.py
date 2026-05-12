@@ -89,32 +89,128 @@ def summarize_group_shares_and_att(data: pd.DataFrame) -> pd.DataFrame:
     """
     Return one row per treated cohort and one row for all treated observations.
     """
-    raise NotImplementedError("Implement summarize_group_shares_and_att().")
+    n_units = data["id"].nunique()
+    total_obs = len(data)
+    
+    # Identify treated cohorts, skipping the never-treated (0) group
+    treated_cohorts = sorted([c for c in data["cohort"].unique() if c > 0])
+    
+    rows = []
+    for g in treated_cohorts:
+        # Cohort share: Number of unique units in this cohort / total unique units
+        cohort_units = data[data["cohort"] == g]["id"].nunique()
+        fraction = cohort_units / n_units
+        
+        # ATT: Average tau_it for treated observations in this cohort
+        treated_obs = data[(data["cohort"] == g) & (data["d"] == 1)]
+        att = treated_obs["tau_it"].mean()
+        
+        rows.append({
+            "group": f"cohort_{g}",
+            "fraction": fraction,
+            "att": att
+        })
+        
+    # 'all_treated' row metrics
+    all_treated_obs = data[data["d"] == 1]
+    fraction_all = len(all_treated_obs) / total_obs
+    att_all = all_treated_obs["tau_it"].mean()
+    
+    rows.append({
+        "group": "all_treated",
+        "fraction": fraction_all,
+        "att": att_all
+    })
+    
+    return pd.DataFrame(rows)
 
 
 def estimate_cohort_did(data: pd.DataFrame, cohort: int, event_time: int, control_group: str) -> float:
     """
     Return a two-period DID estimate for one treatment cohort and event time.
     """
-    raise NotImplementedError("Implement estimate_cohort_did().")
+    target_period = cohort + event_time
+    baseline_period = cohort - 1
+    
+    # 1. Treated group outcomes
+    treated_mask = (data["cohort"] == cohort)
+    y_treat_target = data[treated_mask & (data["time"] == target_period)]["y"].mean()
+    y_treat_base = data[treated_mask & (data["time"] == baseline_period)]["y"].mean()
+    
+    # 2. Control group outcomes
+    if control_group == "never":
+        control_mask = (data["cohort"] == 0)
+    elif control_group == "notyet":
+        control_mask = (data["cohort"] == 0) | (data["cohort"] > target_period)
+    else:
+        raise ValueError("control_group must be 'never' or 'notyet'")
+        
+    y_control_target = data[control_mask & (data["time"] == target_period)]["y"].mean()
+    y_control_base = data[control_mask & (data["time"] == baseline_period)]["y"].mean()
+    
+    # 3. DID Estimate
+    treat_diff = y_treat_target - y_treat_base
+    control_diff = y_control_target - y_control_base
+    
+    return float(treat_diff - control_diff)
 
 
 def estimate_event_study(data: pd.DataFrame, event_times: list[int], control_group: str) -> pd.DataFrame:
     """
     Return cohort-event DID estimates.
     """
-    raise NotImplementedError("Implement estimate_event_study().")
+    treated_cohorts = sorted([c for c in data["cohort"].unique() if c > 0])
+    valid_times = set(data["time"].unique())
+    
+    rows = []
+    for g in treated_cohorts:
+        for e in event_times:
+            target_period = g + e
+            baseline_period = g - 1
+            
+            # Ensure both baseline and target periods exist in the observed panel
+            if target_period in valid_times and baseline_period in valid_times:
+                estimate = estimate_cohort_did(data, g, e, control_group)
+                rows.append({
+                    "cohort": g,
+                    "event_time": e,
+                    "estimate": estimate
+                })
+                
+    event_study_df = pd.DataFrame(rows)
+    if not event_study_df.empty:
+        event_study_df = event_study_df.sort_values(by=["cohort", "event_time"]).reset_index(drop=True)
+        
+    return event_study_df
 
 
 def aggregate_post_treatment_effects(event_study: pd.DataFrame) -> float:
     """
     Return the average estimate over post-treatment event times.
     """
-    raise NotImplementedError("Implement aggregate_post_treatment_effects().")
+    post_treatment_data = event_study[event_study["event_time"] >= 0]
+    return float(post_treatment_data["estimate"].mean())
 
 
 def estimate_twfe_coefficient(data: pd.DataFrame) -> float:
     """
     Return the coefficient from a residualized two-way fixed effects regression of y on d.
     """
-    raise NotImplementedError("Implement estimate_twfe_coefficient().")
+    # Unit and time averages, plus grand average
+    y_bar_i = data.groupby("id")["y"].transform("mean")
+    y_bar_t = data.groupby("time")["y"].transform("mean")
+    y_bar = data["y"].mean()
+    
+    d_bar_i = data.groupby("id")["d"].transform("mean")
+    d_bar_t = data.groupby("time")["d"].transform("mean")
+    d_bar = data["d"].mean()
+    
+    # Residualize Y and D
+    y_ddot = data["y"] - y_bar_i - y_bar_t + y_bar
+    d_ddot = data["d"] - d_bar_i - d_bar_t + d_bar
+    
+    # Compute the pooled TWFE coefficient
+    numerator = (d_ddot * y_ddot).sum()
+    denominator = (d_ddot ** 2).sum()
+    
+    return float(numerator / denominator)
